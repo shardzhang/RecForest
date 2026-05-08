@@ -2,3 +2,7 @@
 */__pycache__
 JTM_variant.py
 test_JTM_variant.ipynb
+.venv
+.vscode
+.DS_Store
+data/gowalla/sorted_test_users.txt

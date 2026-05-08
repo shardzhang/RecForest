@@ -247,9 +247,9 @@ def _partial_gen_discriminator_samples(users,user_his_behav, filename,seq_len,mi
 
 def _partial_gen_train_sample(users,
                               user_his_behav, filename,seq_len,min_seq_len, pipe):
-    #user_his_behav is a dict, key is userid and value is a list [(itemId,timestamp)], list is ascendent by timestamp
+    # user_his_behav is a dict, key is userid and value is a list [(itemId,timestamp)], list is ascendent by timestamp
     #filename is the file to be written into, i.e. sample file
-    stat = dict()# record the frequency of the each item 's appearance
+    stat = dict() # record the frequency of the each item 's appearance
     count=0
     with open(filename, 'w') as f:
         for user in users:
@@ -259,8 +259,8 @@ def _partial_gen_train_sample(users,
                 continue
             arr = [-1 for i in range(seq_len - min_seq_len)] + \
                   [v[0] for v in value]
-            #arr is [0,0...,0,itemid0,itemid1,....]
-            #each line user_id|item1,item2,...,item(self.lem-1)|label
+            # arr is [0,0...,0,itemid0,itemid1,....]
+            # each line user_id|item1,item2,...,item(self.lem-1)|label
             for i in range(len(arr) - seq_len + 1):
                 sample = arr[i: i + seq_len]
                 f.write('{}|'.format(user))  # sample id
@@ -397,7 +397,8 @@ def _split_train_sample(train_instances_file,train_sample_seg_cnt=400):
                 f.write(line)
     print('number of training instance is {}'.format(num))
 
-def _gen_test_sample(test_sample,test_instances_file,seq_len=70,min_seq_len=6):
+def _gen_test_sample(
+        test_sample,test_instances_file,seq_len=70,min_seq_len=6):
     # user_his_behav is a dict, key is userid and value is a list [(itemId,timestamp)], list is ascendent by timestamp
     user_his_behav =_gen_user_his_behave(test_sample)
     with open(test_instances_file, 'w') as f:

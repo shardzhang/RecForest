@@ -36,18 +36,18 @@ class Trm4Rec:
         self.k = k#k branch on each tree
         self.opti=optimizer
         if tree_has_generated:
-                self.tree=Tree(construct=False) 
+                self.tree=Tree(construct=False, device=self.device) 
                 self.tree.read_tree(item_to_code_file=item_to_code_file,code_to_item_file=code_to_item_file,k=k)
         else:
             self.tree = Tree(data=data,max_iters=max_iters,feature_ratio=feature_ratio,\
-                                item_num=item_num,k=k,init_way=init_way,parall=parall)
-            np.save(code_to_item_file,self.tree.code_to_item.numpy())
+                                item_num=item_num,k=k,init_way=init_way,parall=parall,device=self.device)
+            np.save(code_to_item_file,self.tree.code_to_item.cpu().numpy())
             item_to_code_mat=torch.full((item_num,self.tree.tree_height),-1,dtype=torch.int64)
             for item_id,paths in self.tree.item_to_code.items():
                 assert len(paths)>0
                 item_to_code_mat[item_id]=paths[0]
             self.tree.item_to_code = item_to_code_mat.to(self.device)
-            np.save(item_to_code_file,item_to_code_mat.numpy())
+            np.save(item_to_code_file,item_to_code_mat.cpu().numpy())
 
         self.src_voc_size = item_num + 1
         self.tgt_voc_size = k+2 #k + 2
@@ -105,6 +105,8 @@ class Trm4Rec:
         #start_time = time.time()
         # temp_y=torch.cat([tree.label_to_path(batch_y)*self.order[i] \
         #                 for i,tree in enumerate(self.tree_list)],dim=1).sum(1).long().to(self.device)
+        batch_x = batch_x.to(self.device)
+        batch_y = batch_y.to(self.device)
         temp_y = self.tree.item_to_code[batch_y]
         attention_mask=(batch_x != self.trm_model.src_pad)
         #print(temp_y)
@@ -126,6 +128,7 @@ class Trm4Rec:
         #self.trm_model.eval()
         #num_batch = int(math.ceil(batch_x.shape[0] / batch_size))
 
+        batch_x = batch_x.to(self.device)
         all_pred = []
         batch_size=batch_x.shape[0]
         #start_time = time.perf_counter()
@@ -242,4 +245,3 @@ class Trm4Rec:
         
 
         
-
