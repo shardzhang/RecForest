@@ -1,5 +1,5 @@
 """
-generate training batches tensor for DINModel, which is used in DINTrainer
+generate training batches tensor for DINModel, which is used in DINTrainer. DONE
 """
 
 from __future__ import print_function

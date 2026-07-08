@@ -9,7 +9,7 @@
 
 ## Paths And Data
 - Notebook cells assume working directory is `notebooks/gowalla`: they use `sys.path.append('../..')` and `../../data/gowalla/...` paths.
-- Both notebooks are wired for preprocessed data (`have_processed_data=True`). The repo includes `data/gowalla/train_instances_0..9`, `test_instances`, `validation_instances`, `item_node_num.txt`, `DIN_MODEL.pt`, `model/`, and `tree/`, but not the raw `data/gowalla/gowalla.txt`.
+- Both notebooks are wired for preprocessed data (`have_processed_data=True`). The repo includes `data/gowalla/train_instances_0..9`, `test_instances`, `validation_instances`, `user_item_num.txt`, `DIN_MODEL.pt`, `model/`, and `tree/`, but not the raw `data/gowalla/gowalla.txt`.
 - Training data is sharded by prefix. Loaders expect `train_instances_0` through `train_instances_{N-1}` plus an explicit shard count; `_split_train_sample()` deletes the unsuffixed `train_instances` file after sharding.
 - Saved artifact names encode `init_way`, `feature_ratio`, `tree_id`, and `k` (example: `embkm1.0_*_tree_id_0_k18.*`). Changing those notebook params invalidates the checked-in saved files.
 
