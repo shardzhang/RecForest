@@ -190,9 +190,3 @@ class ConstructKmeansTree:
         for c in range(self.k):
             result_index[c]=index[choices==c]
         return result_index
-
-
-
-
-
-

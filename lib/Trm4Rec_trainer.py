@@ -243,5 +243,3 @@ class Trm4Rec:
         #start_position=(torch.log(all_pred+1.0)/torch.log(tree_num)).ceil()-1
         return self.tree.path_to_label(all_pred).view(batch_size,topk)
         
-
-        

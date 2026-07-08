@@ -1,5 +1,11 @@
+"""
+Deep Interest Network (DIN). DONE
+"""
+
+from __future__ import annotations
 import torch.nn as nn
 import torch
+from typing import Sequence
 
 class DeepInterestNetwork(nn.Module):
     def __init__(
@@ -9,15 +15,21 @@ class DeepInterestNetwork(nn.Module):
         feature_groups=[20,20,10,10,2,2,2,1,1,1],
         sum_pooling=False,
     ):
+        """初始化DIN Model
+
+        :param item_num: item number
+        :param embedding_dim: embedding dimension
+        :param feature_groups: feature groups
+        :param sum_pooling: sum pooling
+        """ 
         super().__init__()
 
-        self.item_num=item_num
-        self.embed_dim=embedding_dim
-        self.feature_num=sum(feature_groups)
-        self.sum_pooling=sum_pooling
+        self.item_num = item_num
+        self.embed_dim = embedding_dim
+        self.sum_pooling = sum_pooling
         self.item_embedding = EmbeddingLayer(item_num, embedding_dim)
         self.attention_unit = LocalActivationUnit(
-            hidden_size=[64, 16], 
+            hidden_dims=[64, 16], 
             bias=[True, True], 
             embedding_dim=embedding_dim, 
             batch_norm=False,
@@ -25,33 +37,33 @@ class DeepInterestNetwork(nn.Module):
 
         if sum_pooling:    
             self.fc_layer = FullyConnectedLayer(
-                input_size=2 * embedding_dim,
-                hidden_size=[200, 80, 1],
+                input_dim=2 * embedding_dim,
+                hidden_dims=[200, 80, 1],
                 bias=[True, True, True],
-                activation='dice',
+                activation='relu',  # TODO: dice activation function
                 sigmoid=False,
             )
         else:                               
             self.fc_layer = FullyConnectedLayer(
-                input_size=(len(feature_groups) + 1) * embedding_dim,
-                hidden_size=[200, 80, 1],
+                input_dim=(len(feature_groups) + 1) * embedding_dim,
+                hidden_dims=[200, 80, 1],
                 bias=[True, True, True],
-                activation='dice',
+                activation='relu', # TODO: dice activation function
                 sigmoid=False,
             )
 
             # window matrix for each window's weight sum
             # shape: (len(feature_groups), sum(feature_groups))
             window_matrix = torch.zeros(len(feature_groups), sum(feature_groups))
-            
             start_index = 0
-            for i, feature in enumerate(feature_groups):
-                window_matrix[i, start_index : start_index + feature] = 1.0
-                start_index += feature
+            for i, dim in enumerate(feature_groups):
+                window_matrix[i, start_index : start_index + dim] = 1.0
+                start_index += dim
             self.register_buffer('window_matrix', window_matrix)
 
     def forward(self, batch_user, batch_label):
         """item_num fill with the absence in batch_user
+
         :param batch_user: (batch_size, f_num)
         :param batch_label: (batch_size, 1)
         :return: (batch_size, 1)
@@ -65,7 +77,8 @@ class DeepInterestNetwork(nn.Module):
         effective_index = batch_user < self.item_num
         
         # label expand to the same shape as batch_user for indexing, then get the effective labels
-        # 用和原张量同形状的布尔张量做索引，会把原张量中所有True位置的元素展平成一维张量
+        # 布尔索引: 用和原张量同形状的布尔张量做索引，会把原张量中所有True位置的元素展平成一维张量
+        # 和 indices[gather_idx]（花式索引，输出形状 = gather_idx 形状）不同，布尔索引一定返回一维——所有被 True 选中的元素被展平成一个一维列表，不保留原始形状。
         # (batch_size * effective_index_len, )
         effective_labels = batch_label.expand(batch_user.shape)[effective_index]
 
@@ -122,47 +135,65 @@ class DeepInterestNetwork(nn.Module):
             # (batch_size, 1)
             return self.fc_layer(torch.cat([user_emb, item_emb], -1))
 
+
+def get_activation(name: str, num_features: int = None, dice_dim: int = None) -> nn.Module:
+    """Get the activation function by name.
+
+    :param name: Activation name (case-insensitive).
+        Supported: ``relu``, ``gelu``, ``silu`` / ``swish``,
+        ``leaky_relu``, ``prelu``, ``tanh``, ``dice``.
+    :return: An nn.Module representing the activation function
+    """
+    name = name.lower().replace("-", "_")
+    if name == "relu":
+        return nn.ReLU()
+    if name == "gelu":
+        return nn.GELU()
+    if name in ("silu", "swish"):
+        return nn.SiLU()
+    if name == "leaky_relu":
+        return nn.LeakyReLU(negative_slope=0.01)
+    if name == "prelu":
+        return nn.PReLU()
+    if name == "tanh":
+        return nn.Tanh()
+    # if name == "dice":
+        # return Dice(num_features, dim=dice_dim)
+    raise ValueError(f"Unsupported activation: {name}")
+
 class FullyConnectedLayer(nn.Module):
     def __init__(
         self, 
-        input_size, 
-        hidden_size, 
-        bias, 
-        batch_norm=True,
-        dropout_rate=0.1, 
-        activation='relu', 
-        sigmoid=False, 
-        dice_dim=2
+        input_dim: int, 
+        hidden_dims: list[int], 
+        bias: list[bool], 
+        batch_norm: bool = True,
+        dropout: float = 0.1, 
+        activation: str = 'relu', 
+        sigmoid: bool = False
     ):
         super(FullyConnectedLayer, self).__init__()
-        assert len(hidden_size) >= 1 and len(bias) >= 1
-        assert len(bias) == len(hidden_size)
+        assert len(hidden_dims) >= 1 and len(bias) >= 1, "hidden_size and bias must be non-empty lists"
+        assert len(bias) == len(hidden_dims), "bias must have the same length as hidden_size"
         self.sigmoid = sigmoid
 
-        layers = []
-        layers.append(nn.Linear(input_size, hidden_size[0], bias=bias[0]))
-        
-        for i, h in enumerate(hidden_size[:-1]):
+        layers: list[nn.Module] = []
+        prev_dim = input_dim
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, hidden_dim, bias=bias))
             if batch_norm:
-                layers.append(nn.BatchNorm1d(hidden_size[i]))
-            if activation.lower() == 'relu':
-                layers.append(nn.ReLU(inplace=True))
-            elif activation.lower() == 'dice':
-                assert dice_dim
-                layers.append(Dice(hidden_size[i], dim=dice_dim))
-            elif activation.lower() == 'prelu':
-                layers.append(nn.PReLU())
-            else:
-                raise NotImplementedError
-            
-            layers.append(nn.Dropout(p=dropout_rate))
-            layers.append(nn.Linear(hidden_size[i], hidden_size[i+1], bias=bias[i]))
+                layers.append(nn.BatchNorm1d(hidden_dim))
+            layers.append(get_activation(activation))
+            if dropout > 0:
+                layers.append(nn.Dropout(p=dropout))
+            prev_dim = hidden_dim
         
-        self.fc = nn.Sequential(*layers)
+        self.fc: nn.Sequential = nn.Sequential(*layers)
         if self.sigmoid:
             self.output_layer = nn.Sigmoid()
-        
-        # TODO: 为什么是在这里初始化?
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
         # weight initialization xavier_normal (or glorot_normal in keras, tf)
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -170,39 +201,39 @@ class FullyConnectedLayer(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias.data)
 
-    def forward(self, x):
-        return self.output_layer(self.fc(x)) if self.sigmoid else self.fc(x) 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.sigmoid:
+            return self.output_layer(self.fc(x)) 
+        else:
+            return self.fc(x)
 
 class LocalActivationUnit(nn.Module):
     def __init__(
         self, 
-        hidden_size=[80, 40], 
-        bias=[True, True],
-        embedding_dim=4, 
-        batch_norm=False
+        hidden_dims: list[int] = [80, 40], 
+        bias: list[bool] = [True, True],
+        embedding_dim: int = 4, 
+        batch_norm: bool = False
     ):
         super(LocalActivationUnit, self).__init__()
         
         self.fc1 = FullyConnectedLayer(
-            input_size=4 * embedding_dim,
-            hidden_size=hidden_size,
+            input_dim=4 * embedding_dim,
+            hidden_dims=hidden_dims,
             bias=bias,
             batch_norm=batch_norm,
-            activation='dice',
-            dice_dim=2
+            activation='relu',
         )
 
         self.fc2 = FullyConnectedLayer(
-            input_size=hidden_size[-1],
-            hidden_size=[1],
+            input_dim=hidden_dims[-1],
+            hidden_dims=[1],
             bias=[True],
             batch_norm=batch_norm,
-            activation='dice',
-            dice_dim=2
+            activation='relu',
         )
-        # TODO: fc_2 initialization
 
-    def forward(self, user_behavior, queries):
+    def forward(self, user_behavior: torch.Tensor, queries: torch.Tensor) -> torch.Tensor:
         """
         :param user_behavior: (batch_size, f_num, embed_dim)
         :param queries: (batch_size, f_num, embed_dim)
@@ -220,9 +251,15 @@ class LocalActivationUnit(nn.Module):
         return attention_output
 
 class Dice(nn.Module):
-    """TODO
+    """TODO 
+    Dice activation function
+    :param num_features: number of features
+    :param dim: dimension of the feature
+    :return: Dice activation function
     """
     def __init__(self, num_features, dim=2):
+        self.num_features = num_features
+        self.dim = dim
         super(Dice, self).__init__()
 
         assert dim == 2 or dim == 3
@@ -238,7 +275,7 @@ class Dice(nn.Module):
             #self.alpha = torch.zeros((num_features,)).cuda()
             self.alpha=nn.Parameter(torch.rand((num_features,)))
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.dim == 3:
             # x is [batch_size,time_seq_len,hidden_size]
             x = torch.transpose(x, 1, 2)
@@ -253,15 +290,19 @@ class Dice(nn.Module):
         return out
 
 class EmbeddingLayer(nn.Module):
-    def __init__(self, item_num, embedding_dim):
+    def __init__(self, item_num: int, embedding_dim: int):
         super(EmbeddingLayer, self).__init__()
-        
+        """初始化Embedding Layer
+        :param item_num: item number
+        :param embedding_dim: embedding dimension
+        """
+        # 词表 71437 = 71436 真实 item + 1 个 padding id
         self.embed = nn.Embedding(item_num + 1, embedding_dim, padding_idx=item_num)
-        
         # normal weight initialization
         self.embed.weight.data.normal_(0., 0.0001)
-        
         # TODO: regularization
+        self.regularization = nn.Dropout(0.1)
+        
 
-    def forward(self, x):
-        return self.embed(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor: 
+        return self.regularization(self.embed(x))

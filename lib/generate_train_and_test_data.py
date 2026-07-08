@@ -1,17 +1,17 @@
+"""
+generate train and test data files
+"""
 
 from __future__ import print_function
 
 import os
-
 import time
-
 import random
 import multiprocessing as mp
-
 import numpy as np
 
-#inp is the file name of orignal data file
-#train the the file path to write in used to trian
+# inp is the file name of orignal data file
+# train the the file path to write in used to trian
 # test the the file path to write in used to test
 # number is the user number to testest, number)
 def cut(_input,_train,_test,_validation,_item_vec,_number):
@@ -46,6 +46,7 @@ def cut(_input,_train,_test,_validation,_item_vec,_number):
         for uid in test_user_ids:
             for line in user_behav[uid]:
                 f.write(line)
+    
     with open(_validation, 'w') as f:
         for uid in validation_user_ids:
             for line in user_behav[uid]:
@@ -427,7 +428,6 @@ def _gen_test_sample(
 
 
 if __name__=="__main__":
-    '''
     behavior_dict, train_sample, test_sample=_read('data/mock/mock.dat', 'train.dat', 'test.dat', 20)#20 is the test users
     # write the training instance into different train_sample_seg_cnt files， avoid that a file is too large
     #stat record the click frequency of each item
@@ -435,4 +435,3 @@ if __name__=="__main__":
     stat=_gen_train_sample(train_sample,'./data/train_instances',train_sample_seg_cnt=10,parall=3,seq_len=20,min_seq_len=3)
     _gen_test_sample(test_sample,'./data/test_instances',seq_len=20,min_seq_len=3)
     _init_tree(train_sample, test_sample, stat, kv_file=None)
-    '''
