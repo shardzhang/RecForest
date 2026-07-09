@@ -1,3 +1,7 @@
+"""
+Tree Model
+"""
+
 import enum
 from operator import itemgetter
 import torch
@@ -7,15 +11,36 @@ import random
 import numpy as np
 from lib.KmeansTree import ConstructKmeansTree
 class Tree:
-    def __init__(self,data=None,max_iters=100,feature_ratio=0.8,item_num=1000, k=2,init_way='random',construct=True,parall=4,device='cuda'):
+    def __init__(
+            self,
+            data=None,
+            max_iters=100,
+            feature_ratio=0.8,
+            item_num=1000, 
+            k=2,
+            init_way='random',
+            construct=True,
+            parall=4,
+            device='cuda'
+        ):
         self.item_num = item_num
         self.k = k
         self.device = device
+        
         if construct:
-            self.init_tree(data=data,max_iters=max_iters,init_way=init_way,feature_ratio=feature_ratio,parall=parall)
+            self.init_tree(data=data, max_iters=max_iters, init_way=init_way, feature_ratio=feature_ratio, parall=parall)
 
-    def init_tree(self, data=None,max_iters=100,init_way='random',feature_ratio=0.8,parall=4):
+    def init_tree(
+            self, 
+            data=None,
+            max_iters=100,
+            init_way='random',
+            feature_ratio=0.8,
+            parall=4
+        ):
+
         #data is item embeding or maxtirx used for kmeans cluster
+        # 计算树高
         self.tree_height = math.ceil(math.log(self.item_num,self.k))#root node is rooted on layer zero, the leaf lyaer id
         num_all_leaf_code = self.k ** self.tree_height#the number of leaf node
         self.code_to_item = torch.zeros((num_all_leaf_code,),dtype=torch.int64)#node code to node
@@ -75,35 +100,44 @@ class Tree:
             self.card[i] = self.k ** (self.tree_height - i - 1)# recover to the code
         self.card = self.card.to(self.device)
         self.code_to_item = self.code_to_item.to(self.device)
-    
-    def read_tree(self, code_to_item_file, item_to_code_file,k=4):
 
+
+    def read_tree(self, code_to_item_file, item_to_code_file, k=4):
+        """
+        read tree from file
+        :param code_to_item_file: the file path of code_to_item
+        :param item_to_code_file: the file path of item_to_code
+        :param k: the branch number of each tree
+        :return: self
+        """
         self.code_to_item = torch.tensor(np.load(code_to_item_file)).to(self.device)
 
-        self.item_num=self.code_to_item.max().item()+1
+        self.item_num = self.code_to_item.max().item() + 1
         #self.item_to_code={item_id:[] for item_id in range(self.item_num)}
+        
         item_to_code_mat = torch.tensor(np.load(item_to_code_file)).long()
-        assert self.item_num==item_to_code_mat.shape[0]
+        assert self.item_num == item_to_code_mat.shape[0]
         self.tree_height = item_to_code_mat.shape[-1]
 
         # for item_id,row in enumerate(item_to_code_mat):
         #     self.item_to_code[item_id].append(row)
         self.item_to_code = item_to_code_mat.to(self.device)
-        self.k=k
+        self.k = k
         self.card = torch.zeros(self.tree_height).to(self.device)
         for i in range(self.tree_height):
-            self.card[i] = self.k ** (self.tree_height - i - 1)# recover to the code 
+            self.card[i] = self.k ** (self.tree_height - i - 1)     # recover to the code 
         return self
     
+
     def label_to_path(self, batch_y):
+        """given the item id, obtain the path sequence
+        batch_y is[bs, 1], it contains item ids
         """
-        batch_y is[bs,1], it contains item ids
-        given the item idd, obtain the path sequence
-        """
-        #print(self.item_to_code1[batch_y].shape)
+        print(self.item_to_code[batch_y].shape)
         #return torch.LongTensor(self.item_to_code[batch_y].numpy())
         # return  torch.cat([random.sample(self.item_to_code[label],1)[0] \
         #     for label in batch_y.view(-1).numpy()],dim=-1).view(len(batch_y),1,self.tree_height)
+        
         if isinstance(self.item_to_code, dict):
             labels = batch_y.view(-1).cpu().tolist()
             return torch.stack([self.item_to_code[label][0] for label in labels], dim=0).to(self.device)
@@ -111,12 +145,11 @@ class Tree:
 
 
     
-    def path_to_label(self, batch_pred_seq):#translate the path sequence to item
-        """
+    def path_to_label(self, batch_pred_seq):
+        """translate the path sequence to item
         batch_pred_seq [batch_size,topk,tree_height]
         """
-
-        #print(card)
+        print(self.card)
         batch_code_value = ((batch_pred_seq * self.card).sum(-1)).long()
         return self.code_to_item[batch_code_value]
 

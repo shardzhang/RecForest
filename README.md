@@ -64,6 +64,167 @@ Not included:
 - first line: number of users
 - second line: number of items
 
+## Tree Files
+
+The tree-based `Trm4Rec` pipeline relies on two complementary mapping files per tree:
+
+- `*_item_to_code_tree_id_*.npy`
+- `*_code_to_item_tree_id_*.npy`
+
+Their roles are:
+
+- `item_to_code`
+  - maps an `item_id` to its tree path
+  - shape is typically `(item_num, tree_height)`
+  - each row is a path such as `[branch_1, branch_2, ..., branch_h]`
+  - used during training, when an item label is converted into a path target for the decoder
+
+- `code_to_item`
+  - maps a leaf-code position back to an `item_id`
+  - shape is typically `(num_leaves,)`
+  - used during inference, when a predicted path is decoded back into an item
+
+In short:
+
+```text
+item_id -> item_to_code -> path tokens
+predicted path -> code_to_item -> item_id
+```
+
+Both directions are required for the full tree retrieval workflow.
+
+## Model Checkpoints
+
+Under `data/gowalla/model/`, the checked-in files follow the multi-tree `Trm4Rec` design:
+
+- `*_model_encoder_k*.pt`
+  - the shared encoder checkpoint
+  - reused across all trees in the forest
+  - encodes user history sequences
+
+- `*_model_decoder_tree_id_*.pt`
+  - the decoder checkpoint for one specific tree
+  - each tree has its own decoder because each tree predicts its own path distribution
+
+For example:
+
+- `embkm1.0_model_encoder_k18.pt`
+  - shared encoder for `init_way=embkm`, `feature_ratio=1.0`, `k=18`
+
+- `embkm1.0_model_decoder_tree_id_0_k18.pt`
+  - decoder for tree `0` under the same setup
+
+This matches the notebook design:
+
+- one shared encoder
+- one decoder per tree
+
+## Encoder And Decoder In Trm4Rec
+
+In this project, both the `encoder` and `decoder` belong to the Encoder-Decoder Transformer used by `Trm4Rec`.
+
+Code entrypoints:
+
+- `lib/HF_Model.py`
+- `lib/Trm4Rec_trainer.py`
+
+### Encoder
+
+The encoder consumes the user history sequence:
+
+```text
+history item ids = [item1, item2, ..., item69]
+```
+
+In this repository:
+
+- the source vocabulary size is `item_num + 1`
+- history tokens are item ids
+- the extra token is the padding id
+
+Its job is to turn user history into a contextual hidden representation.
+
+### Decoder
+
+The decoder does not directly predict item ids.
+It predicts tree-path tokens conditioned on:
+
+- the encoder output
+- the already generated path prefix
+
+For example, if one item is mapped to:
+
+```text
+[6, 14, 12, 12]
+```
+
+then the decoder learns a path-generation process like:
+
+```text
+[start] -> 6
+[start, 6] -> 14
+[start, 6, 14] -> 12
+[start, 6, 14, 12] -> 12
+```
+
+So the decoder is effectively a path generator / path classifier.
+
+### Why The Model Is Split This Way
+
+`Trm4Rec` does not solve:
+
+```text
+history -> item score
+```
+
+Instead, it solves:
+
+```text
+history -> path sequence -> item
+```
+
+That is why an encoder-decoder structure is a natural fit:
+
+- the encoder processes user history
+- the decoder generates the item path
+
+### Why Multiple Trees Share One Encoder
+
+In `gowalla.ipynb`:
+
+- each tree has its own decoder
+- all trees share the same encoder
+
+This design assumes that:
+
+- user history representation should be shared across trees
+- different trees mainly differ in how items are encoded and decoded
+
+So the project uses:
+
+```text
+shared encoder + one decoder per tree
+```
+
+This is also why the repository stores:
+
+- one shared `*_model_encoder_k*.pt`
+- multiple `*_model_decoder_tree_id_*.pt`
+
+### Relation To DIN
+
+`DIN` is a scoring model:
+
+```text
+history + candidate item -> score
+```
+
+`Trm4Rec` is a generative retrieval model:
+
+```text
+encoder(history) + decoder(path prefix) -> next path token
+```
+
 ## Sample Formats
 
 Training samples (`train_instances_*`) use:

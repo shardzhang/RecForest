@@ -1,3 +1,14 @@
+"""
+Trm4Rec. 实例化 4 棵树模型时会用到的类
+
+4 棵树模型: tree 不同, decoder 不同, 但 encoder 最终共享
+
+合理的分工是：
+- encoder: 学通用的用户兴趣表示
+- decoder: 学每棵树自己的路径预测规则
+"""
+
+
 # from lib2to3.pgen2 import token
 # from operator import index
 from tracemalloc import start
@@ -12,64 +23,83 @@ import numpy as np
 import time
 
 class Trm4Rec:
-    def __init__(self,
-                 item_num = 1000,
-                 user_seq_len = 69,
-                 d_model = 24,
-                 nhead = 4,
-                 device = 'cuda',
-                 optimizer=lambda params: torch.optim.Adam(params, lr=1e-3, amsgrad=True),
-                 num_layers = 4,
-                 k = 2,
-                 item_to_code_file=None,
-                 code_to_item_file=None,
-                 tree_has_generated=False,
-                 init_way='random',
-                 data=None,
-                 max_iters=100,
-                 feature_ratio=0.8,
-                 parall=4,
-                 position_embedding_type='absolute'
-                 ):
+    def __init__(
+            self,
+            item_num=1000,
+            user_seq_len=69,
+            d_model=24,
+            nhead=4,
+            device='cuda',
+            num_layers = 4,
+            k=2,
+            item_to_code_file=None,
+            code_to_item_file=None,
+            tree_has_generated=False,
+            init_way='random',
+            data=None,
+            max_iters=100,
+            feature_ratio=0.8,
+            parall=4,
+            position_embedding_type='absolute'
+        ):
+
         self.item_num = item_num
         self.device = device
-        self.k = k#k branch on each tree
-        self.opti=optimizer
+        self.k = k  # k branch on each tree
+
         if tree_has_generated:
-                self.tree=Tree(construct=False, device=self.device) 
-                self.tree.read_tree(item_to_code_file=item_to_code_file,code_to_item_file=code_to_item_file,k=k)
+                # 负责 item/path 双向映射
+                self.tree = Tree(construct=False, device=self.device) 
+                self.tree.read_tree(
+                    item_to_code_file=item_to_code_file,
+                    code_to_item_file=code_to_item_file,
+                    k=k
+                )
         else:
-            self.tree = Tree(data=data,max_iters=max_iters,feature_ratio=feature_ratio,\
-                                item_num=item_num,k=k,init_way=init_way,parall=parall,device=self.device)
-            np.save(code_to_item_file,self.tree.code_to_item.cpu().numpy())
-            item_to_code_mat=torch.full((item_num,self.tree.tree_height),-1,dtype=torch.int64)
-            for item_id,paths in self.tree.item_to_code.items():
-                assert len(paths)>0
-                item_to_code_mat[item_id]=paths[0]
+            self.tree = Tree(
+                data=data,
+                max_iters=max_iters,
+                feature_ratio=feature_ratio,
+                item_num=item_num,
+                k=k,
+                init_way=init_way,
+                parall=parall,
+                device=self.device
+            )
+            np.save(code_to_item_file, self.tree.code_to_item.cpu().numpy())
+            item_to_code_mat = torch.full((item_num,self.tree.tree_height), -1, dtype=torch.int64)
+            for item_id, paths in self.tree.item_to_code.items():
+                assert len(paths) > 0
+                item_to_code_mat[item_id] = paths[0]
             self.tree.item_to_code = item_to_code_mat.to(self.device)
-            np.save(item_to_code_file,item_to_code_mat.cpu().numpy())
+            np.save(item_to_code_file, item_to_code_mat.cpu().numpy())
+
 
         self.src_voc_size = item_num + 1
         self.tgt_voc_size = k+2 #k + 2
         self.max_src_len = user_seq_len
         self.max_tgt_len = self.tree.tree_height + 1
+        
 
-
-        self.trm_model = TransformerModel(src_voc_size=self.src_voc_size, 
-                                            tgt_voc_size=self.tgt_voc_size, 
-                                            max_src_len=self.max_src_len,
-                                            max_tgt_len=self.max_tgt_len, 
-                                            d_model=d_model, 
-                                            nhead=nhead, 
-                                            device=device,
-                                            num_layers=num_layers,
-                                            position_embedding_type=position_embedding_type).to(self.device)
+        # Transformer 模型本体
+        self.trm_model = TransformerModel(
+            src_voc_size=self.src_voc_size, 
+            tgt_voc_size=self.tgt_voc_size, 
+            max_src_len=self.max_src_len,
+            max_tgt_len=self.max_tgt_len, 
+            d_model=d_model, 
+            nhead=nhead, 
+            device=device,
+            num_layers=num_layers,
+            position_embedding_type=position_embedding_type
+        ).to(self.device)
         
         self.batch_num = 0
-        #print(self.trm_model)
-        #print(self.trm_model.parameters())
+        print(self.trm_model)
+        print(self.trm_model.parameters())
 
-        self.optimizer = self.opti(self.trm_model.parameters())
+        self.optimizer = torch.optim.Adam(self.trm_model.parameters(), lr=1e-3, amsgrad=True)
+
 
     def update_learning_rate(self, t, learning_rate_base=1e-3, warmup_steps=5000,
                              decay_rate=1./3, learning_rate_min=1e-5):
@@ -101,6 +131,15 @@ class Trm4Rec:
         return loss
     
     def compute_scores(self, batch_x, batch_y):
+        """
+        返回路径级别的分数（每个 path token 一项）
+
+        当前树认为这个 candidate item 在这个 user history 下有多合理。
+
+        因为每棵树都有自己的 path 编码和 decoder，所以：
+
+        不同树对同一个 (user, item) 对的打分会不同
+        """
         #self.trm_model.eval()
         #start_time = time.time()
         # temp_y=torch.cat([tree.label_to_path(batch_y)*self.order[i] \
