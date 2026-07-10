@@ -225,6 +225,50 @@ history + candidate item -> score
 encoder(history) + decoder(path prefix) -> next path token
 ```
 
+### 模型结构图
+
+```mermaid
+graph TD
+    subgraph HFTransformerModel
+        subgraph encoder["encoder (BertModel)"]
+            emb1["embeddings (BertEmbeddings)<br/>word_emb: Embedding(71437,96)<br/>pos_emb: Embedding(70,96)<br/>token_type: Embedding(2,96)<br/>LayerNorm + Dropout"]
+            enc1["BertEncoder<br/>BertLayer x 1"]
+            pool1["BertPooler<br/>Linear(96,96)+Tanh<br/>(未使用)"]
+            emb1 --> enc1 --> pool1
+
+            subgraph BertLayer1["BertLayer"]
+                att1["BertAttention<br/>self: Q/K/V Linear(96,96)<br/>output: Linear + LayerNorm"]
+                inter1["BertIntermediate<br/>Linear(96->1024)+GELU"]
+                out1["BertOutput<br/>Linear(1024->96)+LayerNorm"]
+                att1 --> inter1 --> out1
+            end
+            enc1 --> BertLayer1
+        end
+
+        subgraph decoder["decoder (BertLMHeadModel)"]
+            subgraph bert_dec["bert (BertModel)"]
+                emb2["embeddings (BertEmbeddings)<br/>word_emb: Embedding(20,96)<br/>pos_emb: Embedding(6,96)<br/>token_type: Embedding(2,96)<br/>LayerNorm + Dropout"]
+                enc2["BertEncoder<br/>BertLayer x 1"]
+                emb2 --> enc2
+
+                subgraph BertLayer2["BertLayer (decoder)"]
+                    att2["BertAttention<br/>self: Q/K/V Linear(96,96)"]
+                    cross["BertCrossAttention<br/>(enc_output as K/V)"]
+                    inter2["BertIntermediate<br/>Linear(96->1024)+GELU"]
+                    out2["BertOutput<br/>Linear(1024->96)+LayerNorm"]
+                    att2 --> cross --> inter2 --> out2
+                end
+                enc2 --> BertLayer2
+            end
+
+            cls["cls (BertOnlyMLMHead)<br/>Linear(96->20)"]
+            bert_dec --> cls
+        end
+
+        encoder -- "上下文表示" --> decoder
+    end
+```
+
 ## 样本格式
 
 训练样本（`train_instances_*`）格式：

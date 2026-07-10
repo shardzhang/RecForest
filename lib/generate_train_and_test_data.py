@@ -14,33 +14,26 @@ generate train and test data files. DONE (代码质量差, 不知所云)
 
 from __future__ import print_function
 
+from typing import Tuple
+
 import os
 import time
 import random
 import multiprocessing as mp
 import numpy as np
 
-# inp is the file name of orignal data file
-# train the the file path to write in used to trian
-# test the the file path to write in used to test
-# number is the user number to testest, number)
-def cut(input_file, train_file, test_file, val_file, item_vec, number):
+def cut(input_file, train_file, test_file, val_file, item_vec, number) -> Tuple[dict[int, int], dict[int, int]]:
     """cut the original data file into train, test, validation data set and write them into the corresponding files
 
-    train/test/validation切分: TODO: 合适么?
-    - train/test/validation 的用户集合不重叠
-    - 同一个用户不会同时出现在 train 和 test 中
-
-    id 编码映射:
-    - 原始 user id -> 连续编号
-    - 原始 item id -> 连续编号
-
     :param input_file: the file name of orignal data file
-    :param train_file: the file path to write in used to train
+    :param train_file: the file path to write in used to trian
     :param test_file: the file path to write in used to test
     :param val_file: the file path to write in used to validate
     :param item_vec: the file path to write in used to store item vector
-    :param number: 测试用户数
+    :param number: the user number to testest, 测试用户数
+    :return: (user_ids, item_ids),id 编码映射:
+        - user_ids: 原始 user id -> 连续编号
+        - item_ids: 原始 item id -> 连续编号
     """
     # user_behavior[user_id] = [line1, line2, ...] 收集每个用户全部行为
     user_behavior = dict()
@@ -58,6 +51,8 @@ def cut(input_file, train_file, test_file, val_file, item_vec, number):
                 user_behavior[int(arr[0])] = list()
             user_behavior[int(arr[0])].append(line)
 
+    # - train/test/validation 的用户集合不重叠
+    # - 同一个用户不会同时出现在 train 和 test 中
     random.shuffle(user_ids)
     test_user_ids = user_ids[:number]
     validation_user_ids=user_ids[number:number*2]
@@ -82,8 +77,8 @@ def cut(input_file, train_file, test_file, val_file, item_vec, number):
                 f.write(line)
     
     # re label usr id and item id which make the initial id is 0
-    user_ids = {id : i for i, id in enumerate(user_behavior)}
-    item_ids = {id : i for i, id in enumerate(item_ids)}
+    user_ids: dict[int, int] = {id : i for i, id in enumerate(user_behavior)}
+    item_ids: dict[int, int] = {id : i for i, id in enumerate(item_ids)}
     print('user number {}, item number {}'.format(len(user_ids), len(item_ids)))
 
     # train_user_ids={id:i for i,id in enumerate(train_user_ids)}
@@ -122,7 +117,7 @@ def _read(raw_file, train_data_file, test_data_file, val_data_file, test_record_
         for seg in path_seg[:-1]:
             prefix += seg + '/'
     
-    user_ids, item_ids = cut(
+    user_id_map, item_id_map = cut(
         raw_file, 
         prefix + 'raw_' + train_data_file,
         prefix + 'raw_' + test_data_file,
@@ -158,8 +153,9 @@ def _read(raw_file, train_data_file, test_data_file, val_data_file, test_record_
                 arr = line.split(',')
                 if len(arr) != 5:
                     break
-                user_id.append(user_ids[int(arr[0])])
-                item_id.append(item_ids[int(arr[1])])
+                # raw id -> relabel id
+                user_id.append(user_id_map[int(arr[0])])
+                item_id.append(item_id_map[int(arr[1])])
                 cat_id.append(int(float(arr[2])))
                 if arr[3] not in behavior_dict:
                     i = len(behavior_dict)
@@ -205,7 +201,7 @@ def _read(raw_file, train_data_file, test_data_file, val_data_file, test_record_
     # train_sample record user id, item id, cate_id, behavior_id, timestampe. key the liks 'USERID', value is a array.
     # test_sample is like train_sample
     # behavior_dict record the behavior type, 5 types, key is the type, value is the id of the type
-    return behavior_dict, train_sample, test_sample, val_sample, len(user_ids), len(item_ids)
+    return behavior_dict, train_sample, test_sample, val_sample, len(user_id_map), len(item_id_map)
 
 
 def _gen_user_history_behavior(train_sample: dict) -> dict[str, list[tuple[str, float]]]:
